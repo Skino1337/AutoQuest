@@ -1,21 +1,18 @@
 '''AutoQuest by Skino'''
-'''Version 0.1'''
+'''Version 0.1.1'''
+
 
 import Account
 import BigWorld
 import ResMgr
-import functools
 
-from gui.Scaleform.Waiting import Waiting
+
 from gui import SystemMessages
 from CurrentVehicle import g_currentVehicle
-from gui.shared.gui_items.processors import Processor
 from gui.shared import g_itemsCache
 from gui.shared.utils.requesters import REQ_CRITERIA
-from gui.shared.utils import decorators
-from gui.shared.gui_items import Vehicle
 from gui.server_events import g_eventsCache
-from constants import EVENT_TYPE
+
 
 DEBUG = False
 
@@ -56,57 +53,17 @@ def getPQIDsChanges(oldPQIDs, newPQIDs):
 	
 	return (id, change)
 
-def isPQIDBelongToVehicleType(pQID, vehicle):
-	allPQuests = g_eventsCache.potapov.getQuests().values()
-	return vehicle.type.lower() == list(allPQuests[pQID].getVehicleClasses())[0].lower()
-
 def checkVehClassForBattle():
-	vehicles = g_itemsCache.items.getVehicles(REQ_CRITERIA.CUSTOM(lambda item: item.type.lower() == g_currentVehicle.item.type.lower())).values()
+	vehicles = g_itemsCache.items.getVehicles(REQ_CRITERIA.CUSTOM(lambda v: v.type == g_currentVehicle.item.type)).values()
 	for vehicle in vehicles:
 		if vehicle.isInBattle():
 			return False
 	
 	return True
 
-def changePQuests(newPQuestID):
-	global g_callInMod
-	
-	selectedPQuestIDs = g_currentPotapovQuestIDs
-	if newPQuestID in selectedPQuestIDs:
-		return
-	
-	allPQuests = g_eventsCache.potapov.getQuests().values()
-	if allPQuests[newPQuestID-1].isDone():
-		SystemMessages.pushMessage('<font color=\'#FF0000\'><b>Боевая задача уже выполнена!</b></font>', SystemMessages.SM_TYPE.Information, 0)
-		return
-	
-	message = str(newPQuestID)
-	message += '\n' + str(selectedPQuestIDs)	
-	
-	i = len(selectedPQuestIDs)
-	if i == 0:
-		if newPQuestID > 0:
-			selectedPQuestIDs.append(newPQuestID)
-	else:
-		for selectedPQuestID in selectedPQuestIDs:
-			i = i - 1
-			if isPQIDBelongToVehicleType(selectedPQuestID-1, g_currentVehicle.item):
-				selectedPQuestIDs.remove(selectedPQuestID)
-				if newPQuestID > 0:
-					selectedPQuestIDs.append(newPQuestID)
-				break
-			elif i == 0:
-				if newPQuestID > 0:
-					selectedPQuestIDs.append(newPQuestID)
-	
-	message += '\n' + str(selectedPQuestIDs)
-	if DEBUG:
-		SystemMessages.pushMessage(message, SystemMessages.SM_TYPE.Information, 0)
-	
-	g_callInMod = True
-	BigWorld.player().selectPotapovQuests(selectedPQuestIDs, 0, hook_response)
-	
-	return
+def isPQIDBelongToVehicleType(pQID, vehicle):
+	quest = g_eventsCache.potapov.getQuests().get(pQID)
+	return vehicle.type in quest.getVehicleClasses()
 
 def hook_response(code, callback):
 	global g_previosPotapovQuestIDs, g_currentPotapovQuestIDs, g_callInMod
@@ -142,44 +99,99 @@ def hook_response(code, callback):
 		return
 	
 	id, change = getPQIDsChanges(g_previosPotapovQuestIDs, g_currentPotapovQuestIDs)
-	toCurrent = isPQIDBelongToVehicleType(id, g_currentVehicle.item)
-	if toCurrent:
+	if isPQIDBelongToVehicleType(id, g_currentVehicle.item):
 		message = 'Техника:\n' + str(g_currentVehicle.item.userName)
 		if change == 'set':
 			g_xmlSetting.write(g_currentVehicle.item.name, '')
 			g_xmlSetting[g_currentVehicle.item.name].writeInt('questID', id)
 			g_xmlSetting.save()
-			message += '\nПривязана задача:\n' + getQuestTileprefix(id-1) + g_eventsCache.potapov.getQuests().values()[id-1].getUserName()
+			message += '\nПривязана задача:\n' + getQuestTileprefix(id)
+			if DEBUG:
+				message += '[id:' + str(id) + '] '
+			message += g_eventsCache.potapov.getQuests().get(id).getUserName()
 		elif change == 'del':
 			g_xmlSetting.write(g_currentVehicle.item.name, '')
 			g_xmlSetting[g_currentVehicle.item.name].writeInt('questID', 0)
 			g_xmlSetting.save()
 			message += '\nОтвязаны все задачи.'
-		if change == 'none':
-			message = 'Задачи небыли изменены.'
+		elif change == 'none':
+			message =  'Задачи небыли изменены.'
 		
 		SystemMessages.pushMessage(message, SystemMessages.SM_TYPE.Information, 0)
 	
 	return
 
-def vehicleCheckCallback():
-	global g_currentVehicleName, g_isFirstInit, g_currentVehiclePQID, g_currentPotapovQuestIDs
+def changeVehicle():
+	global g_currentVehiclePQID, g_callInMod
 	
-	if g_currentVehicle.isInHangar and hasattr(g_currentVehicle.item, 'name'):
-		if g_currentVehicleName != g_currentVehicle.item.name:
-			g_currentVehicleName = g_currentVehicle.item.name
-			if g_isFirstInit:
-				g_isFirstInit = False
-				g_currentPotapovQuestIDs = getSelectedQuestIDs()
-				if DEBUG:
-					SystemMessages.pushMessage('startedPQIDs: ' + str(g_currentPotapovQuestIDs), SystemMessages.SM_TYPE.Information, 0)
+	g_currentVehiclePQID = None
+	if not g_xmlSetting[g_currentVehicleName]:
+		return
+	g_currentVehiclePQID = g_xmlSetting[g_currentVehicleName].readInt('questID', 0)
 	
-			g_currentVehiclePQID = None
-			if g_xmlSetting[g_currentVehicleName]:
-				g_currentVehiclePQID = g_xmlSetting[g_currentVehicleName].readInt('questID', 0)
-				changePQuests(g_currentVehiclePQID)
+	selectedPQuestIDs = g_currentPotapovQuestIDs
+	if g_currentVehiclePQID in selectedPQuestIDs:
+		return
 	
-	BigWorld.callback(1, vehicleCheckCallback)
+	allPQuests = g_eventsCache.potapov.getQuests().values()
+	if allPQuests[g_currentVehiclePQID-1].isDone():
+		SystemMessages.pushMessage('<font color=\'#FF0000\'><b>Боевая задача уже выполнена!</b></font>', SystemMessages.SM_TYPE.Information, 0)
+		return
+	
+	m = 'Try to select correct quest.\n'
+	m += str(g_currentVehiclePQID) + '\n'
+	m += str(selectedPQuestIDs) + '\n'
+	
+	i = len(selectedPQuestIDs)
+	if i == 0:
+		if g_currentVehiclePQID > 0:
+			selectedPQuestIDs.append(g_currentVehiclePQID)
+	else:
+		for selectedPQuestID in selectedPQuestIDs:
+			i = i - 1
+			if isPQIDBelongToVehicleType(selectedPQuestID, g_currentVehicle.item):
+				selectedPQuestIDs.remove(selectedPQuestID)
+				if g_currentVehiclePQID > 0:
+					selectedPQuestIDs.append(g_currentVehiclePQID)
+				break
+			elif i == 0:
+				if g_currentVehiclePQID > 0:
+					selectedPQuestIDs.append(g_currentVehiclePQID)
+	
+	m += str(selectedPQuestIDs)
+	if DEBUG:
+		print m
+		SystemMessages.pushMessage(m, SystemMessages.SM_TYPE.Information, 0)
+	
+	g_callInMod = True
+	BigWorld.player().selectPotapovQuests(selectedPQuestIDs, 0, hook_response)
+	
+	return
+
+def vehicleCheck():
+	global g_currentVehicleName, g_isFirstInit, g_currentPotapovQuestIDs
+	
+	if not g_currentVehicle.isInHangar:
+		return
+	
+	if not hasattr(g_currentVehicle.item, 'name'):
+		return
+	
+	if g_currentVehicleName == g_currentVehicle.item.name:
+		return
+	
+	g_currentVehicleName = g_currentVehicle.item.name
+	if g_isFirstInit:
+		g_isFirstInit = False
+		g_currentPotapovQuestIDs = getSelectedQuestIDs()
+		if DEBUG:
+			m = 'Initial quests IDs:\n' + str(g_currentPotapovQuestIDs)
+			for id in g_currentPotapovQuestIDs:
+				m += '\n' + g_eventsCache.potapov.getQuests().get(id).getUserName()
+			print m
+			SystemMessages.pushMessage(m, SystemMessages.SM_TYPE.Information, 0)
+	
+	changeVehicle()
 	
 	return
 
@@ -193,15 +205,21 @@ def hook_selectPotapovQuests(PlayerAccountClassSpecimen, potapovQuestIDs, questT
 def init():
 	global g_original_selectPotapovQuests, g_xmlSetting
 	
-	print '[AutoQuest] Version 0.1 by Skino'
+	print '[AutoQuest] Version 0.1.1 by Skino'
 	
 	g_original_selectPotapovQuests = Account.PlayerAccount.selectPotapovQuests
 	Account.PlayerAccount.selectPotapovQuests = hook_selectPotapovQuests
 	
-	BigWorld.callback(2, vehicleCheckCallback)
-	
 	g_xmlSetting = ResMgr.openSection('scripts/client/gui/mods/mod_AutoQuest.xml', True)
 	if not g_xmlSetting:
 		g_xmlSetting.save()
+	
+	def vehicleCheckCallback():
+		vehicleCheck()
+		BigWorld.callback(1, vehicleCheckCallback)
+		
+		return
+	
+	vehicleCheckCallback()
 	
 	return
