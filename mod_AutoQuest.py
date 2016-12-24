@@ -1,5 +1,5 @@
 '''AutoQuest by Skino'''
-'''Version 0.1.1'''
+'''Version 0.1.2'''
 
 
 import Account
@@ -11,7 +11,8 @@ from gui import SystemMessages
 from CurrentVehicle import g_currentVehicle
 from gui.shared import g_itemsCache
 from gui.shared.utils.requesters import REQ_CRITERIA
-from gui.server_events import g_eventsCache
+from skeletons.gui.server_events import IEventsCache
+from helpers import dependency
 
 
 DEBUG = False
@@ -24,14 +25,17 @@ g_previosPotapovQuestIDs = []
 g_currentPotapovQuestIDs = []
 g_currentVehicleName = ''
 g_currentVehiclePQID = ''
+g_eventsCache = None
 
 g_originalCallback = None
 
 def getQuestTileprefix(id):
+	global g_EventsCache
 	allPQuests = g_eventsCache.potapov.getQuests().values()
 	return ('[' + str(allPQuests[id].getTileID()) + '] ')
 	
 def getSelectedQuestIDs():
+	global g_EventsCache
 	selectedPQuests = g_eventsCache.potapov.getSelectedQuests().values()
 	selectedPQuestIDs = []
 	for selectedPQuest in selectedPQuests:
@@ -62,11 +66,13 @@ def checkVehClassForBattle():
 	return True
 
 def isPQIDBelongToVehicleType(pQID, vehicle):
+	global g_eventsCache
 	quest = g_eventsCache.potapov.getQuests().get(pQID)
 	return vehicle.type in quest.getVehicleClasses()
 
 def hook_response(code, callback):
-	global g_previosPotapovQuestIDs, g_currentPotapovQuestIDs, g_callInMod
+	global g_previosPotapovQuestIDs, g_currentPotapovQuestIDs, g_callInMod, g_eventsCache
+	
 	if not g_callInMod:
 		g_originalCallback(code, callback)
 	
@@ -122,7 +128,7 @@ def hook_response(code, callback):
 	return
 
 def changeVehicle():
-	global g_currentVehiclePQID, g_callInMod
+	global g_currentVehiclePQID, g_callInMod, g_eventsCache
 	
 	g_currentVehiclePQID = None
 	if not g_xmlSetting[g_currentVehicleName]:
@@ -169,7 +175,7 @@ def changeVehicle():
 	return
 
 def vehicleCheck():
-	global g_currentVehicleName, g_isFirstInit, g_currentPotapovQuestIDs
+	global g_currentVehicleName, g_isFirstInit, g_currentPotapovQuestIDs, g_eventsCache
 	
 	if not g_currentVehicle.isInHangar:
 		return
@@ -183,6 +189,7 @@ def vehicleCheck():
 	g_currentVehicleName = g_currentVehicle.item.name
 	if g_isFirstInit:
 		g_isFirstInit = False
+		g_eventsCache = dependency.instance(IEventsCache)
 		g_currentPotapovQuestIDs = getSelectedQuestIDs()
 		if DEBUG:
 			m = 'Initial quests IDs:\n' + str(g_currentPotapovQuestIDs)
@@ -205,7 +212,7 @@ def hook_selectPotapovQuests(PlayerAccountClassSpecimen, potapovQuestIDs, questT
 def init():
 	global g_original_selectPotapovQuests, g_xmlSetting
 	
-	print '[AutoQuest] Version 0.1.1 by Skino'
+	print '[AutoQuest] Version 0.1.2 by Skino'
 	
 	g_original_selectPotapovQuests = Account.PlayerAccount.selectPotapovQuests
 	Account.PlayerAccount.selectPotapovQuests = hook_selectPotapovQuests
